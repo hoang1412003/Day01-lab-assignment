@@ -8,10 +8,12 @@ Instructions:
     3. Copy this file to solution/solution.py when done.
     4. Run: pytest tests/ -v
 """
+__name__ = "template"
 
 import os
 import time
 from typing import Any, Callable
+from openai import OpenAI
 
 # ---------------------------------------------------------------------------
 # Estimated costs per 1K OUTPUT tokens (USD) — update if pricing changes
@@ -52,9 +54,21 @@ def call_openai(
         from openai import OpenAI
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     """
-    # TODO: import OpenAI, create client, call chat.completions.create,
-    #       measure start/end time, return (response_text, latency)
-    raise NotImplementedError("Implement call_openai")
+    # Implement OpenAI call
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    start = time.time()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+    )
+    latency = time.time() - start
+    # Extract generated text
+    response_text = response.choices[0].message.content.strip()
+    return response_text, latency
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +96,14 @@ def call_openai_mini(
     Hint:
         Reuse call_openai() by passing model=OPENAI_MINI_MODEL.
     """
-    # TODO: call call_openai with model=OPENAI_MINI_MODEL
-    raise NotImplementedError("Implement call_openai_mini")
+    # Reuse call_openai with the mini model
+    return call_openai(
+        prompt,
+        model=OPENAI_MINI_MODEL,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +129,23 @@ def compare_models(prompt: str) -> dict:
         Cost estimate = (len(response.split()) / 0.75) / 1000 * COST_PER_1K_OUTPUT_TOKENS["gpt-4o"]
         (0.75 words ≈ 1 token is a rough approximation)
     """
-    # TODO: call call_openai and call_openai_mini, assemble and return the dict
-    raise NotImplementedError("Implement compare_models")
+    # Call GPT‑4o
+    gpt4o_response, gpt4o_latency = call_openai(prompt)
+    # Call GPT‑4o‑mini
+    mini_response, mini_latency = call_openai_mini(prompt)
+
+    # Estimate cost for GPT‑4o output (USD)
+    # Approximate token count: words / 0.75 (0.75 words ≈ 1 token)
+    token_count = (len(gpt4o_response.split()) / 0.75)
+    gpt4o_cost_estimate = (token_count / 1000) * COST_PER_1K_OUTPUT_TOKENS["gpt-4o"]
+
+    return {
+        "gpt4o_response": gpt4o_response,
+        "mini_response": mini_response,
+        "gpt4o_latency": gpt4o_latency,
+        "mini_latency": mini_latency,
+        "gpt4o_cost_estimate": gpt4o_cost_estimate,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +169,46 @@ def streaming_chatbot() -> None:
         - After each turn, append the assistant reply to history.
         - Trim history to the last 3 turns: history = history[-3:]
     """
-    # TODO: enter while-loop, read user input, stream response, maintain history
-    raise NotImplementedError("Implement streaming_chatbot")
+    # Initialize OpenAI client
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    # Conversation history (list of dicts) – will keep last 3 turns (6 messages)
+    history: list[dict[str, str]] = []
+
+    while True:
+        # Prompt user
+        user_input = input("\nYou: ").strip()
+        if user_input.lower() in ("quit", "exit"):
+            print("Exiting chatbot.")
+            break
+
+        # Append user message to history
+        history.append({"role": "user", "content": user_input})
+        # Keep only the last 3 turns (6 messages) for the API request
+        messages = history[-6:]
+
+        # Stream response from OpenAI
+        print("Assistant: ", end="", flush=True)
+        assistant_reply = ""
+        stream = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=messages,
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=256,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            print(delta, end="", flush=True)
+            assistant_reply += delta
+        print()  # newline after full response
+
+        # Append assistant reply to history
+        history.append({"role": "assistant", "content": assistant_reply})
+        # Trim history to last 3 turns (6 messages) for next iteration
+        if len(history) > 6:
+            history = history[-6:]
+
 
 
 # ---------------------------------------------------------------------------
